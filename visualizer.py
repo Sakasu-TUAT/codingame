@@ -1,6 +1,9 @@
 import customtkinter as ctk
 import tkinter as tk
 from othello_py import *
+import subprocess
+import sys
+import time
 
 ctk.set_appearance_mode("dark")  # Modes: system (default), light, dark
 ctk.set_default_color_theme("blue")  # Themes: blue (default), dark-blue, green
@@ -16,7 +19,8 @@ dy = [0, 1, 0, -1, 1, 1, -1, -1]
 dx = [1, 0, -1, 0, 1, -1, 1, -1]
 
 # 色の設定
-BOARD_COLOR = 'green' # 盤面の背景色
+BOARD_COLOR_LIGHT = 'green' # 盤面の背景色
+BOARD_COLOR_DARK = "dark green"
 YOUR_COLOR = 'black' # あなたの石の色
 COM_COLOR = 'white' # 相手の石の色
 PLACABLE_COLOR = 'yellow' # 次に石を置ける場所を示す色
@@ -47,13 +51,29 @@ class OthelloBoard(ctk.CTk):
             COM : COM_COLOR
         }
 
-
         self.player = YOU # 次に置く石の色
         self.cell_size = 0
         self.total_cell_num = 4
+        self.x_offset = 0
+        self.y_offset = 0
+
         self.draw_board()
         self.draw_pieces()
         self.setEvents()
+
+        self.playGame()
+
+
+    def playGame(self) : 
+        cpp_output = subprocess.check_output(["./a.out"])
+        output_values = cpp_output.decode("utf-8").strip().split()
+        x = int(output_values[0])
+        y = int(output_values[1])
+
+        self.showPlacable(self.getPlacable())
+
+        print("Received values from C++:", y, x)
+        self.after(1000, self.playPiece, y, x)
 
     def createWidgets(self):
         self.title("Othello")
@@ -86,10 +106,24 @@ class OthelloBoard(ctk.CTk):
         self.cpu_score_label.grid(row=8, column=2, padx=10, pady=10, rowspan = 1, columnspan=1)
 
     def setEvents(self):
-        '''イベントを設定する'''
-
-        # キャンバス上のマウスクリックを受け付ける
+        '''キャンバス上のマウスクリックを受け付ける'''
         self.canvas.bind('<ButtonPress>', self.click)
+
+    def playPiece(self, y, x):
+        '''石を置く'''
+        if self.checkPlacable(y, x, self.color[self.player]):
+            # 次に石を置けるマスであれば石を置く
+            self.total_cell_num  += 1
+            self.reverse(y, x, self.color[self.player])    
+            self.draw_pieces()
+            if self.player == YOU:
+                self.player = COM
+            else:
+                self.player = YOU
+            self.showPlacable(self.getPlacable())
+
+        else:
+            print("そこは置けません")
 
     def draw_board(self):
         self.canvas.update()
@@ -100,18 +134,22 @@ class OthelloBoard(ctk.CTk):
         print(self.cell_size)
         board_width = BOARD_SIZE * self.cell_size
         board_height = BOARD_SIZE * self.cell_size
-        x_offset = (canvas_width - board_width) / 2
-        y_offset = (canvas_height - board_height) / 2
+        self.x_offset = (canvas_width - board_width) / 2
+        self.y_offset = (canvas_height - board_height) / 2
 
         for row in range(BOARD_SIZE):
             for col in range(BOARD_SIZE):
-                x1 = col * self.cell_size + x_offset 
-                y1 = row * self.cell_size + y_offset
+                x1 = col * self.cell_size + self.x_offset 
+                y1 = row * self.cell_size + self.y_offset
                 x2 = x1 + self.cell_size
                 y2 = y1 + self.cell_size
-                color = "green" if (row + col) % 2 == 0 else "dark green"
-                print("Board: ", x1 // self.cell_size, y1 // self.cell_size, x2 // self.cell_size, y2 // self.cell_size)
-                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="white")
+                color = BOARD_COLOR_LIGHT if (row + col) % 2 == 0 else BOARD_COLOR_DARK
+                # print("Board: ", x1 // self.cell_size, y1 // self.cell_size, x2 // self.cell_size, y2 // self.cell_size)
+                tag_name = 'square_' + str(y1 // self.cell_size) + '_' + str(x1 // self.cell_size)
+                self.canvas.create_rectangle(
+                    x1, y1, x2, y2, fill=color, outline="white",
+                    tags=tag_name
+                )
     
     def draw_pieces(self):
         self.canvas.update()
@@ -141,22 +179,8 @@ class OthelloBoard(ctk.CTk):
 
     o = othello()
 
-    # def show_board(self):
-    #     global clicked, legal_buttons
-    #     for button in legal_buttons:
-    #         button.place_forget()
-    #     legal_buttons = []
-    #     for y in range(hw):
-    #         for x in range(hw):
-    #             try:
-    #                 self.canvas.delete(str(y) + '_' + str(x))
-    #             except:
-    #                 pass
-    #             if self.o.grid[]
-
     def click(self, event):
         '''盤面がクリックされた時の処理'''
-
         # if self.player != YOU:
         #     # COMが石を置くターンの時は何もしない
         #     return
@@ -164,45 +188,33 @@ class OthelloBoard(ctk.CTk):
         # クリックされたｘ位置がどのマスであるかを計算
         y = event.y // self.cell_size - 1 
         x = event.x // self.cell_size - 1
-        print("pos: ", y, x)
+        self.playPiece(y, x)
 
-        if self.checkPlacable(y, x, self.color[self.player]):
-            # 次に石を置けるマスであれば石を置く
-            self.total_cell_num  += 1
-            self.reverse(y, x, self.color[self.player])    
-            self.draw_pieces()
-            if self.player == YOU:
-                self.player = COM
-            else:
-                self.player = YOU
-        else:
-            print("そこは置けません")
+    def showPlacable(self, placable):
+        '''placableに格納された次に石が置けるマスの色を変更する'''
+        for y in range(NUM_SQUARE):
+            for x in range(NUM_SQUARE):
+                x1 = self.x_offset + x * self.cell_size
+                y1 = self.y_offset + y * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+                tag_name = 'square_' + str(y1 // self.cell_size) + '_' + str(x1 // self.cell_size)
+                if (y, x) in placable:
+                    self.canvas.itemconfig(tag_name, fill="dark blue")
+                    print(y, x, "can place: blue")
+                else: 
+                    color = BOARD_COLOR_LIGHT if (y + x) % 2 == 0 else BOARD_COLOR_DARK
+                    self.canvas.itemconfig(tag_name, fill=color)
 
+    def getPlacable(self):
+        '''次に置くことができる石の位置を取得'''
+        placable = []
+        for y in range(NUM_SQUARE):
+            for x in range(NUM_SQUARE):
+                if self.checkPlacable(y, x, color=self.color[self.player]):
+                    placable.append((y, x))
+        return placable
 
-        # 次に石を置くプレイヤーを決める
-        before_player = self.player
-        # self.nextPlayer()
-        
-        # if before_player == self.player:
-        #     # 前と同じプレイヤーであればスキップされたことになるのでそれを表示
-        #     if self.player != YOU:
-        #         self.textbox = ctk.CTkEntry(self, placeholder_text="テキストを入力してください", width=220, font=("meiryo", 15))
-        #         self.textbox.place(x=60, y=50)
-        #     else:
-        #         self.textbox = ctk.CTkEntry(self, placeholder_text="テキストを入力してください", width=220, font=("meiryo", 15))
-        #         self.textbox.place(x=60, y=250)
-        # elif not self.player:
-        #     # 次に石が置けるプレイヤーがいない場合はゲーム終了
-        #     # self.showResult()
-        #     return
-
-        # 次に石がおける位置を取得して表示
-        # placable = self.getPlacable()
-        # self.showPlacable(placable)
-
-        # if self.player == COM:
-        #     # 次のプレイヤーがCOMの場合は1秒後にCOMに石を置く場所を決めさせる
-        #     self.master.after(1000, self.com)
 
     def checkPlacable(self, y, x, color):
         y = int(y)
@@ -211,19 +223,17 @@ class OthelloBoard(ctk.CTk):
         if not self.is_inside_of_board(y, x):
             print('盤面外です')
             return False
-        if  self.grid[y][x] != vacant:
+        if  self.grid[y][x] == "black" or self.grid[y][x] == "white":
             print("すでに石が置かれています")
             return False
         
         for direction in range(8):
-            # print("start: ", y, x)
             ny = y
             nx = x
             cnt = 0
             for d in range (BOARD_SIZE - 1):
                 ny += dy[direction]
                 nx += dx[direction]
-                print("next: ", ny, nx, "color: ", color)
                 if not self.is_inside_of_board(ny, nx):
                     break
                 if self.grid[ny][nx] == vacant:
@@ -251,7 +261,6 @@ class OthelloBoard(ctk.CTk):
             return False
         
         for direction in range(8):
-            print("start: ", y, x)
             ny = y
             nx = x
             canFlip = False
@@ -268,10 +277,8 @@ class OthelloBoard(ctk.CTk):
                     break
                 if self.grid[ny][nx] == color:
                     canFlip = True
-                    print("next: ", ny, nx)
                     break
                 cnt+=1
-                print("next: ", ny, nx)
             
             if canFlip:
                 print(ny, nx , "can flip")
@@ -284,7 +291,6 @@ class OthelloBoard(ctk.CTk):
                     self.grid[y][x] = color
                 
                 flipNum -=1 
-                print("flipNum: ", flipNum)
                 if color == self.color[YOU]:
                     self.YOUR_SCORE += flipNum
                     self.COM_SCORE -= flipNum
@@ -292,9 +298,9 @@ class OthelloBoard(ctk.CTk):
                     self.COM_SCORE += flipNum
                     self.YOUR_SCORE -= flipNum
    
-            
             else:
-                print(ny, nx , "can't flip")
+                pass
+                # print(ny, nx , "can't flip")
 
             # self.COM_SCORE = self.total_cell_num - self.YOUR_SCORE
         self.COM_SCORE+=(color == self.color[COM])
